@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/user"
@@ -139,6 +140,7 @@ func (a *PublicKeys) ClientConfig(_ context.Context, _ *transport.Request) (*gos
 type PublicKeysCallback struct {
 	User     string
 	Callback func() (signers []gossh.Signer, err error)
+	closer   io.Closer
 	HostKeyCallbackHelper
 }
 
@@ -154,7 +156,7 @@ func NewSSHAgentAuth(u string) (*PublicKeysCallback, error) {
 		}
 	}
 
-	a, _, err := sshagent.New()
+	a, c, err := sshagent.New()
 	if err != nil {
 		return nil, fmt.Errorf("error creating SSH agent: %w", err)
 	}
@@ -162,7 +164,18 @@ func NewSSHAgentAuth(u string) (*PublicKeysCallback, error) {
 	return &PublicKeysCallback{
 		User:     u,
 		Callback: a.Signers,
+		closer:   c,
 	}, nil
+}
+
+// Close releases resources held by this auth method, such as the SSH agent
+// Unix socket opened by NewSSHAgentAuth. It is safe to call on a nil receiver
+// or when no closer was set.
+func (a *PublicKeysCallback) Close() error {
+	if a == nil || a.closer == nil {
+		return nil
+	}
+	return a.closer.Close()
 }
 
 // ClientConfig returns the ssh.ClientConfig for public key callback authentication.
